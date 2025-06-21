@@ -473,6 +473,7 @@ class ModernChatGUI:
     
     def show_topology(self):
         """Ağ topolojisini görüntüler"""
+        import json  # json modülünü ekleyin
         if not self.is_logged_in:
             return
             
@@ -481,6 +482,7 @@ class ModernChatGUI:
         topo_window.title("Ağ Topolojisi")
         topo_window.geometry("600x500")
         topo_window.transient(self.root)
+        topo_window.protocol("WM_DELETE_WINDOW", lambda: self.close_topology_window(topo_window))
         
         # Topoloji görünümü
         topo_view = TopologyView(topo_window, width=580, height=450)
@@ -491,6 +493,17 @@ class ModernChatGUI:
         
         debug_label = ttk.Label(debug_frame, text="Topoloji bilgisi bekleniyor...", foreground="blue")
         debug_label.pack(side=tk.LEFT, padx=10)
+        
+        # Otomatik yenileme seçeneği
+        auto_refresh_var = tk.BooleanVar(value=True)
+        auto_refresh_cb = ttk.Checkbutton(
+            debug_frame, 
+            text="Otomatik Yenile", 
+            variable=auto_refresh_var,
+            onvalue=True,
+            offvalue=False
+        )
+        auto_refresh_cb.pack(side=tk.RIGHT, padx=10)
         
         # Callback fonksiyonu
         def on_topology_data(data):
@@ -503,8 +516,10 @@ class ModernChatGUI:
                 # Debug amaçlı topoloji verisini yazdır
                 print(f"[DEBUG] Alınan topoloji verisinin içeriği: {json.dumps(data, indent=2)}")
             except Exception as e:
-                print(f"[ERROR] Topoloji güncellenirken hata: {e}")
-        
+                print(f"[ERROR] Topoloji güncellenirken hata: {str(e)}")
+    
+        # Topoloji penceresine başvuruyu sakla
+        self.topo_window = topo_window
         self.client.on_topology_data = on_topology_data
         
         # Güncelleme düğmesi
@@ -527,9 +542,26 @@ class ModernChatGUI:
         )
         ping_btn.pack(side=tk.LEFT, pady=5, padx=5)
         
-        # İlk yükleme - setTimeout tarzında çağır
+        # Düzenli güncelleme fonksiyonu
+        def refresh_topology():
+            if auto_refresh_var.get() and topo_window.winfo_exists():
+                self.send_ping()
+                # Ping'den sonra topoloji verisi iste
+                self.root.after(500, self.request_topology)
+                # 5 saniyede bir yenile
+                self.root.after(5000, refresh_topology)
+        
+        # İlk yükleme - ping gönder ve topoloji iste
         self.send_ping()
-        self.root.after(2000, self.request_topology)  # 2 saniye sonra request_topology çağır
+        self.root.after(1000, self.request_topology)
+        # Düzenli güncelleme başlat
+        self.root.after(5000, refresh_topology)
+
+    def close_topology_window(self, window):
+        """Topoloji penceresini kapatır"""
+        # Callback'i temizle
+        self.client.on_topology_data = None
+        window.destroy()
     
     def send_ping(self):
         """Tüm kullanıcılara ping gönderir"""

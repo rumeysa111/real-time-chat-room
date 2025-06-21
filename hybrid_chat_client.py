@@ -205,8 +205,31 @@ class HybridChatClient:
                 elif message["type"] == ChatProtocol.MSG_TOPO:
                     # Topoloji verisi
                     print(f"[TOPO] Topoloji verisi alındı: {json.dumps(message['content'], indent=2)}")
+                    
+                    # Önce kendi client topolojisini mesaja entegre et
+                    client_topo = self.topology.get_topology_data()
+                    server_topo = message['content']
+                    
+                    # SERVER düğümünü kendi topolojisine ekle
+                    for node_name, node_data in server_topo.get("nodes", {}).items():
+                        if node_name not in client_topo["nodes"]:
+                            client_topo["nodes"][node_name] = node_data
+                    
+                    # Sunucu bağlantılarını kendi topolojisine ekle
+                    for conn in server_topo.get("connections", []):
+                        conn_found = False
+                        for client_conn in client_topo.get("connections", []):
+                            if ((conn["from"] == client_conn["from"] and conn["to"] == client_conn["to"]) or 
+                                (conn["from"] == client_conn["to"] and conn["to"] == client_conn["from"])):
+                                conn_found = True
+                                break
+                        
+                        if not conn_found:
+                            client_topo["connections"].append(conn)
+                    
+                    # Birleştirilmiş topolojiyi kullan 
                     if self.on_topology_data:
-                        self.on_topology_data(message["content"])
+                        self.on_topology_data(server_topo)  # server_topo kullan
                     else:
                         print("[TOPO] Uyarı: on_topology_data callback'i ayarlanmamış!")
                 

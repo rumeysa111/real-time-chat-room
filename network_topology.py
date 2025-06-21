@@ -32,28 +32,31 @@ class NetworkTopology:
     def update_connection_quality(self, from_user, to_user, quality):
         """İki düğüm arasındaki bağlantı kalitesini günceller"""
         with self.lock:
-            # Quality değerini sınırla (0-100)
-            quality = max(0, min(100, float(quality)))
-            
-            # Mevcut bağlantıyı ara ve güncelle
-            connection_found = False
-            for conn in self.connections:
-                if (conn["from"] == from_user and conn["to"] == to_user) or \
-                   (conn["from"] == to_user and conn["to"] == from_user):
-                    # Ortalama değer yerine en güncel değeri kullan
-                    conn["quality"] = quality
-                    connection_found = True
-                    print(f"[TOPO] Bağlantı güncellendi: {from_user} <-> {to_user}, quality={quality:.1f}%")
-                    break
-            
-            # Bağlantı yoksa yeni ekle
-            if not connection_found:
-                self.connections.append({
-                    "from": from_user,
-                    "to": to_user,
-                    "quality": quality
-                })
-                print(f"[TOPO] Yeni bağlantı eklendi: {from_user} <-> {to_user}, quality={quality}%")
+            try:
+                # Quality değerini sınırla (0-100)
+                quality = max(0, min(100, float(quality)))
+                
+                # Mevcut bağlantıyı ara ve güncelle
+                connection_found = False
+                for conn in self.connections:
+                    if (conn["from"] == from_user and conn["to"] == to_user) or \
+                       (conn["from"] == to_user and conn["to"] == from_user):
+                        # Ortalama değer yerine en güncel değeri kullan
+                        conn["quality"] = quality
+                        connection_found = True
+                        print(f"[TOPO] Bağlantı güncellendi: {from_user} <-> {to_user}, quality={quality:.1f}%")
+                        break
+                
+                # Bağlantı yoksa yeni ekle
+                if not connection_found:
+                    self.connections.append({
+                        "from": from_user,
+                        "to": to_user,
+                        "quality": quality
+                    })
+                    print(f"[TOPO] Yeni bağlantı eklendi: {from_user} <-> {to_user}, quality={quality}%")
+            except Exception as e:
+                print(f"[ERROR] Bağlantı kalitesi güncelleme hatası: {e}")
     
     def get_topology_data(self):
         """Topoloji verilerini döndürür"""
