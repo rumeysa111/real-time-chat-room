@@ -38,6 +38,7 @@ class ModernChatGUI:
         self.client.on_user_join = self.on_user_join
         self.client.on_user_leave = self.on_user_leave
         self.client.on_user_list = self.on_user_list
+        self.client.on_direct_message = self.on_direct_message
         
         # Oturum durumu
         self.is_logged_in = False
@@ -51,6 +52,9 @@ class ModernChatGUI:
         # Kullanıcı adı al ve bağlan
         self.login()
         
+        # Özel sohbet pencereleri için sözlük
+        self.private_chats = {}  # {username: PrivateChatWindow}
+
         self.root.mainloop()
     
     def create_widgets(self):
@@ -197,6 +201,10 @@ class ModernChatGUI:
             cursor="hand2"
         )
         self.protocol_btn.pack(fill=tk.X, padx=10, pady=(0, 5))
+
+        # Sağ tık menüsü için
+        self.user_menu = tk.Menu(self.root, tearoff=0)
+        self.user_menu.add_command(label="Özel Mesaj Gönder", command=self.send_direct_message_selected)
 
     
     def on_frame_configure(self, event=None):
@@ -401,12 +409,19 @@ class ModernChatGUI:
             
         # Kullanıcıları ekle
         for user in users:
+            if user == self.client.username or user == "SERVER":
+                continue  # Kendimizi veya sunucuyu listelemeyelim
+            
             user_frame = tk.Frame(self.users_frame, bg=self.colors["sidebar"])
-            user_frame.pack(fill=tk.X, pady=2)
+            user_frame.pack(fill=tk.X, pady=4, padx=2)
+            
+            # Ana kullanıcı çerçevesi
+            user_info_frame = tk.Frame(user_frame, bg=self.colors["sidebar"])
+            user_info_frame.pack(fill=tk.X, expand=True)
             
             # Kullanıcı durumu göstergesi
             status_indicator = tk.Label(
-                user_frame, 
+                user_info_frame, 
                 text="•", 
                 font=("Segoe UI", 14), 
                 fg=self.colors["status"],
@@ -416,15 +431,38 @@ class ModernChatGUI:
             
             # Kullanıcı adı
             username_label = tk.Label(
-                user_frame, 
+                user_info_frame, 
                 text=user, 
                 font=("Segoe UI", 10),
                 bg=self.colors["sidebar"],
                 fg=self.colors["text"],
                 anchor=tk.W
             )
-            username_label.pack(side=tk.LEFT, fill=tk.X)
-    
+            username_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            
+            # Sağ tıklama ile özel menü
+            username_label.bind("<Button-3>", lambda event, username=user: self.show_user_menu(event, username))
+            
+            # Özel mesaj butonu
+            dm_btn = tk.Button(
+                user_info_frame,
+                text="DM",
+                font=("Segoe UI", 7),
+                bg="#9c27b0",  # Mor
+                fg="white",
+                relief=tk.FLAT,
+                padx=5,
+                pady=1,
+                cursor="hand2",
+                command=lambda u=user: self.get_or_create_private_chat(u)  # Bu satırı değiştirdik
+            )
+            dm_btn.pack(side=tk.RIGHT, padx=(0, 5))
+
+    # Kullanıcıya sağ tıklama
+    def show_user_menu(self, event, username):
+        self.selected_user = username
+        self.user_menu.post(event.x_root, event.y_root)
+
     # Callback fonksiyonları
     def on_message(self, username, content, timestamp):
         """Mesaj alındığında çağrılır"""
@@ -462,7 +500,29 @@ class ModernChatGUI:
             "content": users
         })
 
-
+    def on_direct_message(self, username, content, timestamp, is_direct=True):
+        """Özel mesaj alındığında çağrılır"""
+        try:
+            dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
+            formatted_time = dt.strftime("%H:%M:%S")
+        except:
+            formatted_time = timestamp
+        
+        # Debug
+        self.log_protocol("UDP ALINDI", {
+            "type": "DIRECT",
+            "user": username,
+            "recipient": self.client.username,
+            "content": content
+        })
+        
+        # Eğer bu kullanıcıyla özel sohbet penceresi yoksa, bildirim göster
+        if username not in self.private_chats or not self.private_chats[username].window.winfo_exists():
+            self.add_system_message(f"🔔 {username} kullanıcısından özel mesaj aldınız!")
+        
+        # Özel sohbet penceresini göster ve mesajı ekle
+        chat_window = self.get_or_create_private_chat(username)
+        chat_window.receive_message(content, formatted_time)
 
     def log_protocol(self, direction, message):
         """Gelen/giden protokol mesajlarını JSON formatında saklar"""
@@ -480,12 +540,12 @@ class ModernChatGUI:
         # Topoloji penceresi
         topo_window = tk.Toplevel(self.root)
         topo_window.title("Ağ Topolojisi")
-        topo_window.geometry("600x500")
+        topo_window.geometry("700x600")
         topo_window.transient(self.root)
         topo_window.protocol("WM_DELETE_WINDOW", lambda: self.close_topology_window(topo_window))
         
         # Topoloji görünümü
-        topo_view = TopologyView(topo_window, width=580, height=450)
+        topo_view = TopologyView(topo_window, width=680, height=500)
         
         # Debug bilgisi etiketi
         debug_frame = ttk.Frame(topo_window)
@@ -494,16 +554,31 @@ class ModernChatGUI:
         debug_label = ttk.Label(debug_frame, text="Topoloji bilgisi bekleniyor...", foreground="blue")
         debug_label.pack(side=tk.LEFT, padx=10)
         
-        # Otomatik yenileme seçeneği
+        # Otomatik yenileme seçeneği ve süre seçici
+        control_frame = ttk.Frame(debug_frame)
+        control_frame.pack(side=tk.RIGHT, padx=10)
+        
         auto_refresh_var = tk.BooleanVar(value=True)
         auto_refresh_cb = ttk.Checkbutton(
-            debug_frame, 
+            control_frame, 
             text="Otomatik Yenile", 
             variable=auto_refresh_var,
             onvalue=True,
             offvalue=False
         )
-        auto_refresh_cb.pack(side=tk.RIGHT, padx=10)
+        auto_refresh_cb.pack(side=tk.LEFT, padx=10)
+        
+        ttk.Label(control_frame, text="Yenileme Sıklığı:").pack(side=tk.LEFT)
+        refresh_options = ["3 sn", "5 sn", "10 sn", "30 sn"]
+        refresh_var = tk.StringVar(value="5 sn")
+        refresh_combo = ttk.Combobox(
+            control_frame,
+            values=refresh_options,
+            textvariable=refresh_var,
+            width=6,
+            state="readonly"
+        )
+        refresh_combo.pack(side=tk.LEFT, padx=5)
         
         # Callback fonksiyonu
         def on_topology_data(data):
@@ -537,23 +612,50 @@ class ModernChatGUI:
         # Ping gönderme düğmesi
         ping_btn = ttk.Button(
             update_frame,
-            text="Ping Gönder",
+            text="Ping Gönder (Sunucu)",
             command=self.send_ping
         )
         ping_btn.pack(side=tk.LEFT, pady=5, padx=5)
         
+        # Tüm Kullanıcılara Ping düğmesi
+        ping_all_btn = ttk.Button(
+            update_frame,
+            text="Tüm Kullanıcılara Ping",
+            command=lambda: self.send_ping_all_users()
+        )
+        ping_all_btn.pack(side=tk.LEFT, pady=5, padx=5)
+        
         # Düzenli güncelleme fonksiyonu
         def refresh_topology():
-            if auto_refresh_var.get() and topo_window.winfo_exists():
-                self.send_ping()
-                # Ping'den sonra topoloji verisi iste
+            if not topo_window.winfo_exists():
+                return
+                
+            if auto_refresh_var.get():
+                # Seçilen süreye göre yenileme sıklığını belirle
+                interval_text = refresh_var.get()
+                if interval_text == "3 sn":
+                    interval = 3000
+                elif interval_text == "10 sn":
+                    interval = 10000
+                elif interval_text == "30 sn":
+                    interval = 30000
+                else:
+                    interval = 5000  # Varsayılan 5 sn
+                
+                # Tüm kullanıcılara ping gönder
+                self.send_ping_all_users()
+                
+                # Topoloji verisini iste
                 self.root.after(500, self.request_topology)
-                # 5 saniyede bir yenile
-                self.root.after(5000, refresh_topology)
+                
+                # Bir sonraki yenileme için zamanla
+                self.root.after(interval, refresh_topology)
         
-        # İlk yükleme - ping gönder ve topoloji iste
-        self.send_ping()
-        self.root.after(1000, self.request_topology)
+        # İlk yükleme
+        self.send_ping()  # Önce sunucuya ping gönder
+        self.root.after(1000, self.send_ping_all_users)  # Sonra tüm kullanıcılara ping gönder
+        self.root.after(1500, self.request_topology)  # Topoloji verisi iste
+        
         # Düzenli güncelleme başlat
         self.root.after(5000, refresh_topology)
 
@@ -573,6 +675,15 @@ class ModernChatGUI:
         else:
             self.add_system_message("Ping gönderilemedi! Bağlantınızı kontrol edin.")
 
+    def send_ping_all_users(self):
+        """Tüm kullanıcılara ping gönderir"""
+        if not self.is_logged_in:
+            return
+        
+        if self.client.ping_all_users():
+            self.add_system_message("Tüm kullanıcılara ping gönderildi. Topoloji bilgisi güncelleniyor...")
+        else:
+            self.add_system_message("Ping gönderilemedi! Bağlantınızı kontrol edin.")
 
     def show_protocol_log(self):
         """Protocol mesajlarını gösteren pencere"""
@@ -601,6 +712,313 @@ class ModernChatGUI:
             self.add_system_message("Topoloji verisi istendi...")
         else:
             self.add_system_message("Topoloji verisi isteği başarısız!")
+
+    def send_direct_message_selected(self):
+        """Seçili kullanıcıya özel mesaj gönder"""
+        if not hasattr(self, "selected_user") or not self.selected_user:
+            return
+        
+        if self.selected_user == self.client.username:
+            self.add_system_message("Kendinize özel mesaj gönderemezsiniz.")
+            return
+        
+        # Direkt özel sohbet penceresini aç
+        self.get_or_create_private_chat(self.selected_user)
+
+    def send_direct_message(self, recipient, content):
+        """Özel mesaj gönderme"""
+        if not self.is_logged_in:
+            return
+        
+        # Özel sohbet penceresini al veya oluştur
+        chat_window = self.get_or_create_private_chat(recipient)
+        
+        # Mesajı giriş alanına ekle ve gönder
+        if content:
+            chat_window.msg_input.insert(0, content)
+            chat_window.send_message()
+
+    def get_or_create_private_chat(self, recipient):
+        """Özel sohbet penceresini alır veya oluşturur"""
+        if recipient in self.private_chats and self.private_chats[recipient].window.winfo_exists():
+            # Mevcut pencereyi öne getir
+            window = self.private_chats[recipient].window
+            window.deiconify()  # Minimize edilmişse geri getir
+            window.lift()  # Öne getir
+            return self.private_chats[recipient]
+        
+        # Yeni pencere oluştur
+        chat_window = PrivateChatWindow(self.root, self.client.username, recipient, self.client)
+        self.private_chats[recipient] = chat_window
+        return chat_window
+
+    def close_private_chat(self, recipient):
+        """Özel sohbet penceresini kapatır"""
+        if recipient in self.private_chats:
+            del self.private_chats[recipient]
+
+# chat_gui.py dosyasına ekleyin
+
+class PrivateChatWindow:
+    def __init__(self, parent, username, recipient, client):
+        """Özel sohbet penceresi"""
+        self.parent = parent
+        self.username = username
+        self.recipient = recipient
+        self.client = client
+        self.message_history = []  # Mesaj geçmişi
+        
+        # Pencere oluştur
+        self.window = tk.Toplevel(parent)
+        self.window.title(f"Özel Sohbet: {recipient}")
+        self.window.geometry("500x400")
+        self.window.protocol("WM_DELETE_WINDOW", self.on_close)
+        
+        # Pencere içeriği
+        self.create_widgets()
+        
+    def create_widgets(self):
+        """Pencere içeriğini oluştur"""
+        # Ana çerçeve
+        self.main_frame = tk.Frame(self.window, bg="#f0f2f5")
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Başlık çubuğu
+        self.header = tk.Frame(self.main_frame, bg="#e3f2fd", height=40)
+        self.header.pack(fill=tk.X)
+        
+        self.title_label = tk.Label(
+            self.header, 
+            text=f"Özel Sohbet: {self.recipient}", 
+            font=("Segoe UI", 12, "bold"),
+            bg="#e3f2fd", 
+            fg="#333333"
+        )
+        self.title_label.pack(side=tk.LEFT, padx=10, pady=8)
+        
+        # Mesaj alanı
+        self.messages_frame = tk.Frame(self.main_frame, bg="#f0f2f5")
+        self.messages_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Scrollable mesaj alanı
+        self.canvas = tk.Canvas(self.messages_frame, bg="#f0f2f5", highlightthickness=0)
+        self.scrollbar = ttk.Scrollbar(self.messages_frame, orient="vertical", command=self.canvas.yview)
+        
+        self.messages_container = tk.Frame(self.canvas, bg="#f0f2f5")
+        self.messages_container_id = self.canvas.create_window(
+            (0, 0), window=self.messages_container, anchor="nw", width=self.canvas.winfo_width()
+        )
+        
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.messages_container.bind("<Configure>", self.on_frame_configure)
+        self.canvas.bind("<Configure>", self.on_canvas_configure)
+        
+        # Mesaj giriş alanı
+        self.input_frame = tk.Frame(self.main_frame, bg="#f0f2f5", height=60)
+        self.input_frame.pack(fill=tk.X, pady=(5, 10), padx=10)
+        
+        self.msg_input = tk.Entry(
+            self.input_frame, 
+            font=("Segoe UI", 11),
+            bg="white",
+            fg="#333333",
+            relief=tk.FLAT,
+            highlightthickness=1,
+            highlightbackground="#cccccc",
+            highlightcolor="#1877f2"
+        )
+        self.msg_input.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, ipady=8, padx=(0, 10))
+        self.msg_input.bind("<Return>", self.send_message)
+        
+        # Gönder butonu
+        self.send_btn = tk.Button(
+            self.input_frame, 
+            text="Gönder", 
+            font=("Segoe UI", 10, "bold"),
+            bg="#1877f2",
+            fg="white",
+            relief=tk.FLAT,
+            padx=15,
+            command=self.send_message,
+            cursor="hand2"
+        )
+        self.send_btn.pack(side=tk.RIGHT, ipady=8)
+        
+        # Geçmiş mesajları yükle
+        self.load_message_history()
+    
+    def on_frame_configure(self, event=None):
+        """Mesaj alanı boyutu değiştiğinde scrollbar'ı güncelle"""
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+    
+    def on_canvas_configure(self, event=None):
+        """Canvas boyutu değiştiğinde içerik genişliğini güncelle"""
+        if event:
+            canvas_width = event.width
+            self.canvas.itemconfig(self.messages_container_id, width=canvas_width)
+    
+    def load_message_history(self):
+        """Mesaj geçmişini yükle"""
+        for msg in self.message_history:
+            if msg["sender"] == self.username:
+                self.add_my_message(msg["content"], msg["timestamp"])
+            else:
+                self.add_other_message(msg["content"], msg["timestamp"])
+    
+    def add_message_to_history(self, sender, content, timestamp):
+        """Mesaj geçmişine ekle"""
+        self.message_history.append({
+            "sender": sender,
+            "content": content,
+            "timestamp": timestamp
+        })
+    
+    def add_my_message(self, content, timestamp=None):
+        """Kendi mesajımı ekle"""
+        if not timestamp:
+            timestamp = time.strftime("%H:%M:%S")
+            
+        # Mesaj konteyneri
+        message_frame = tk.Frame(self.messages_container, bg="#f0f2f5")
+        message_frame.pack(fill=tk.X, pady=5, padx=10)
+        
+        # Mesaj balonu içeren frame
+        bubble_frame = tk.Frame(message_frame, bg="#f0f2f5")
+        bubble_frame.pack(side=tk.RIGHT)
+        
+        # Mesaj içeriği
+        message_content = tk.Label(
+            bubble_frame,
+            text=content,
+            font=("Segoe UI", 10),
+            bg="#e3f2fd",  # Açık mavi
+            fg="#000000",
+            justify=tk.LEFT,
+            wraplength=300,
+            padx=10,
+            pady=8
+        )
+        message_content.pack(fill=tk.X)
+        
+        # Zaman etiketi
+        time_label = tk.Label(
+            bubble_frame,
+            text=timestamp,
+            font=("Segoe UI", 7),
+            bg="#f0f2f5",
+            fg="#65676b"
+        )
+        time_label.pack(side=tk.RIGHT, padx=5, pady=(0, 2))
+        
+        # Scroll'u aşağı kaydır
+        self.canvas.update_idletasks()
+        self.canvas.yview_moveto(1.0)
+    
+    def add_other_message(self, content, timestamp=None):
+        """Karşı tarafın mesajını ekle"""
+        if not timestamp:
+            timestamp = time.strftime("%H:%M:%S")
+            
+        # Mesaj konteyneri
+        message_frame = tk.Frame(self.messages_container, bg="#f0f2f5")
+        message_frame.pack(fill=tk.X, pady=5, padx=10)
+        
+        # Mesaj balonu içeren frame
+        bubble_frame = tk.Frame(message_frame, bg="#f0f2f5")
+        bubble_frame.pack(side=tk.LEFT)
+        
+        # Mesaj içeriği
+        message_content = tk.Label(
+            bubble_frame,
+            text=content,
+            font=("Segoe UI", 10),
+            bg="#f3e5f5",  # Açık mor
+            fg="#000000",
+            justify=tk.LEFT,
+            wraplength=300,
+            padx=10,
+            pady=8
+        )
+        message_content.pack(fill=tk.X)
+        
+        # Zaman etiketi
+        time_label = tk.Label(
+            bubble_frame,
+            text=timestamp,
+            font=("Segoe UI", 7),
+            bg="#f0f2f5",
+            fg="#65676b"
+        )
+        time_label.pack(side=tk.LEFT, padx=5, pady=(0, 2))
+        
+        # Scroll'u aşağı kaydır
+        self.canvas.update_idletasks()
+        self.canvas.yview_moveto(1.0)
+    
+    def send_message(self, event=None):
+        """Mesaj gönder"""
+        content = self.msg_input.get().strip()
+        if not content:
+            return
+        
+        self.msg_input.delete(0, tk.END)
+        
+        # Mesajı gönder
+        timestamp = time.strftime("%H:%M:%S")
+        
+        def send():
+            success = self.client.send_direct_message(self.recipient, content)
+            if success:
+                # Mesaj geçmişine ekle
+                self.add_message_to_history(self.username, content, timestamp)
+            else:
+                # Hata mesajı
+                error_frame = tk.Frame(self.messages_container, bg="#f0f2f5")
+                error_frame.pack(fill=tk.X, pady=5)
+                
+                error_label = tk.Label(
+                    error_frame,
+                    text="❌ Mesaj gönderilemedi!",
+                    font=("Segoe UI", 9, "italic"),
+                    bg="#f0f2f5",
+                    fg="#e74c3c"  # Kırmızı
+                )
+                error_label.pack()
+        
+        # Mesajı UI'da göster
+        self.add_my_message(content, timestamp)
+        
+        # Asenkron olarak gönder
+        threading.Thread(target=send).start()
+    
+    def receive_message(self, content, timestamp):
+        """Karşı taraftan gelen mesajı göster"""
+        # Mesaj geçmişine ekle
+        self.add_message_to_history(self.recipient, content, timestamp)
+        
+        # Mesajı göster
+        self.add_other_message(content, timestamp)
+        
+        # Pencere odaklanmamışsa dikkat çek
+        if not self.window.focus_get():
+            self.window.bell()  # Sesli uyarı
+            
+            # Eğer pencere minimize edilmişse veya arkadaysa
+            if self.window.state() == 'iconic':
+                self.window.deiconify()  # Pencereyi öne getir
+                self.window.lift()  # Üste çıkar
+    
+    def on_close(self):
+        """Pencere kapatıldığında"""
+        # Ana uygulamaya bildir
+        if hasattr(self.parent, 'close_private_chat'):
+            self.parent.close_private_chat(self.recipient)
+        self.window.destroy()
+
 
 
 if __name__ == "__main__":

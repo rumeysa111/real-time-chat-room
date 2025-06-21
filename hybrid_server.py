@@ -235,6 +235,28 @@ class HybridChatServer:
                     # Mesajı diğer istemcilere yayınla
                     self._broadcast_udp(message, exclude=username)
                 
+                elif message["type"] == ChatProtocol.MSG_DIRECT:
+                    msg_id = message["id"]
+                    recipient = message.get("recipient")
+
+                    # Gönderene ACK yolla
+                    ack = ChatProtocol.encode(
+                        ChatProtocol.MSG_ACK,
+                        "SERVER",
+                        msg_id
+                    )
+                    self.udp_socket.sendto(ack, addr)
+
+                    # Alıcıya mesajı ilet
+                    if recipient and recipient in self.clients:
+                        recipient_addr = self.clients[recipient].get("udp_addr")
+                        if recipient_addr:
+                            try:
+                                self.udp_socket.sendto(data, recipient_addr)
+                                print(f"[DIRECT] {username} -> {recipient}: {message.get('content')}")
+                            except Exception as e:
+                                print(f"[ERROR] Özel mesaj iletme hatası: {e}")
+                
                 elif message["type"] == ChatProtocol.MSG_PING:
                     # Ping mesajı alındı, PONG ile yanıt ver
                     print(f"[PING] Alındı: {username} kullanıcısından")

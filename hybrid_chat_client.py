@@ -11,7 +11,7 @@ class HybridChatClient:
         self.server_ip = server_ip
         self.tcp_port = tcp_port
         self.udp_port = udp_port
-        
+        self.on_direct_message = None
         # TCP soketi
         self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         
@@ -118,6 +118,40 @@ class HybridChatClient:
         del self.pending_acks[msg_id]
         return False
     
+    def send_direct_message(self, recipient, content):
+        """Özel mesaj gönderir (UDP)"""
+        if not self.connected:
+            return False
+        
+        msg_id = f"{int(time.time() * 1000)}"
+        message = ChatProtocol.encode(
+            ChatProtocol.MSG_DIRECT, 
+            self.username, 
+            content, 
+            msg_id,
+            recipient=recipient
+        )
+        
+        # ACK için event oluştur
+        ack_event = threading.Event()
+        self.pending_acks[msg_id] = ack_event
+        
+        # Mesajı gönder
+        MAX_RETRIES = 3
+        for attempt in range(MAX_RETRIES):
+            self.udp_socket.sendto(message, (self.server_ip, self.udp_port))
+            
+            # ACK için bekle
+            if ack_event.wait(1.0):  # 1 saniye timeout
+                del self.pending_acks[msg_id]
+                return True
+            
+            print(f"Deneme {attempt + 1}/{MAX_RETRIES}...")
+        
+        # ACK alınamadı
+        del self.pending_acks[msg_id]
+        return False
+    
     def get_user_list(self):
         """Kullanıcı listesini ister (TCP)"""
         if not self.connected:
@@ -173,6 +207,53 @@ class HybridChatClient:
         except Exception as e:
             print(f"[PING] Ping gönderme hatası: {e}")
             return False
+    
+    def send_direct_ping(self, target_username):
+        """Belirli bir kullanıcıya doğrudan ping gönderir"""
+        if not self.connected or target_username == self.username:
+            return False
+        
+        timestamp = str(time.time())
+        
+        # Hedef kullanıcı için ping mesajı
+        direct_ping = ChatProtocol.encode(
+            ChatProtocol.MSG_PING,
+            self.username,
+            timestamp,  # Timestamp
+            recipient=target_username  # Hedef kullanıcı adı
+        )
+        
+        # Sunucu üzerinden UDP olarak gönder
+        try:
+            self.udp_socket.sendto(direct_ping, (self.server_ip, self.udp_port))
+            print(f"[PING] Doğrudan ping gönderildi: {target_username}")
+            return True
+        except Exception as e:
+            print(f"[PING] Doğrudan ping gönderme hatası: {e}")
+            return False
+
+    def ping_all_users(self):
+        """Tüm kullanıcılara ping gönderir"""
+        if not self.connected:
+            return False
+        
+        # Önce sunucuya ping gönder
+        self.ping_users()
+        
+        # Kullanıcı listesini al ve her birine ping gönder
+        with self.lock:
+            # self.known_users varsa kullan, yoksa serverden getir
+            try:
+                users = [user for user in self.on_user_list if user != self.username and user != "SERVER"]
+            except:
+                # Bu durumda sunucudan alınan kullanıcı listesi yok
+                return self.ping_users()  # Sadece sunucuya ping gönder
+        
+        # Diğer kullanıcılara doğrudan ping gönder
+        for user in users:
+            self.send_direct_ping(user)
+        
+        return True
     
     def _listen_tcp(self):
         """TCP mesajlarını dinler"""
@@ -314,6 +395,29 @@ class HybridChatClient:
 
                     except Exception as e:
                         print(f"[ERROR] PONG işleme hatası: {str(e)}")
+                
+                elif message["type"] == ChatProtocol.MSG_DIRECT:
+                    # Özel mesaj
+                    if message["recipient"] == self.username:
+                        # Bana gelen özel mesaj
+                        if self.on_direct_message:
+                            self.on_direct_message(
+                                message["user"],
+                                message["content"],
+                                message["time"],
+                                is_direct=True
+                            )
+                        
+                        # Mesajı aldığımızı bildir
+                        ack = ChatProtocol.encode(
+                            ChatProtocol.MSG_ACK,
+                            self.username,
+                            message["id"]
+                        )
+                        try:
+                            self.udp_socket.sendto(ack, addr)
+                        except:
+                            pass
     
 
 
