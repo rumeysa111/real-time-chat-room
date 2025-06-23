@@ -2,10 +2,10 @@ import tkinter as tk
 import json
 from tkinter import scrolledtext, simpledialog, ttk
 import threading
-from hybrid_chat_client import HybridChatClient
+from hybrid_chat_client_fixed import HybridChatClient
 import time
 from datetime import datetime
-from topology_view import TopologyView
+from topology_view_fixed import TopologyView
 
 class ModernChatGUI:
     def __init__(self):

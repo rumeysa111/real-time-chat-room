@@ -1,8 +1,9 @@
-# hybrid_client.py
+# hybrid_chat_client_fixed.py
 import socket
 import threading
 import time
 import json
+import queue
 from hybrid_protocol import ChatProtocol
 from network_topology import NetworkTopology
 
@@ -22,6 +23,7 @@ class HybridChatClient:
         self.username = None
         self.connected = False
         self.pending_acks = {}  # {msg_id: event}
+        self.lock = threading.Lock()  # Eklendi
         
         # Callback fonksiyonları
         self.on_message = None
@@ -221,8 +223,7 @@ class HybridChatClient:
             self.username,
             timestamp,  # Timestamp
             recipient=target_username  # Hedef kullanıcı adı
-        )
-        
+        )        
         # Sunucu üzerinden UDP olarak gönder
         try:
             self.udp_socket.sendto(direct_ping, (self.server_ip, self.udp_port))
@@ -231,7 +232,7 @@ class HybridChatClient:
         except Exception as e:
             print(f"[PING] Doğrudan ping gönderme hatası: {e}")
             return False
-
+    
     def ping_all_users(self):
         """Tüm kullanıcılara ping gönderir"""
         if not self.connected:
@@ -240,19 +241,27 @@ class HybridChatClient:
         # Önce sunucuya ping gönder
         self.ping_users()
         
-        # Kullanıcı listesini al ve her birine ping gönder
-        with self.lock:
-            # self.known_users varsa kullan, yoksa serverden getir
-            try:
-                users = [user for user in self.on_user_list if user != self.username and user != "SERVER"]
-            except:
-                # Bu durumda sunucudan alınan kullanıcı listesi yok
-                return self.ping_users()  # Sadece sunucuya ping gönder
+        # Kullanıcı listesini iste
+        self.get_user_list()
+        
+        # Bilinen kullanıcı listesi varsa kullan
+        known_users = []
+        try:
+            # Topolojiden bilinen düğümleri al
+            with self.topology.lock:
+                known_users = list(self.topology.nodes.keys())
+            
+            # Kendimizi hariç tut
+            if self.username in known_users:
+                known_users.remove(self.username)
+        except Exception as e:
+            print(f"[ERROR] Kullanıcı listesi alma hatası: {e}")
         
         # Diğer kullanıcılara doğrudan ping gönder
-        for user in users:
+        for user in known_users:
             self.send_direct_ping(user)
         
+        print(f"[PING] {len(known_users)} kullanıcıya ping gönderildi")
         return True
     
     def _listen_tcp(self):
@@ -292,11 +301,10 @@ class HybridChatClient:
                     server_topo = message['content']
                     
                     # SERVER düğümünü kendi topolojisine ekle
-                    for node_name, node_data in server_topo.get("nodes", {}).items():
-                        if node_name not in client_topo["nodes"]:
-                            client_topo["nodes"][node_name] = node_data
+                    if "SERVER" in server_topo["nodes"]:
+                        client_topo["nodes"]["SERVER"] = server_topo["nodes"]["SERVER"]
                     
-                    # Sunucu bağlantılarını kendi topolojisine ekle
+                    # Sunucudan gelen bağlantıları entegre et
                     for conn in server_topo.get("connections", []):
                         conn_found = False
                         for client_conn in client_topo.get("connections", []):
@@ -330,8 +338,7 @@ class HybridChatClient:
                 message = ChatProtocol.decode(data)
                 
                 if message:
-                    print(f"[UDP ALINDI - SERVER] {json.dumps(message, indent=2, ensure_ascii=False)}")
-
+                    print(f"[UDP ALINDI - CLIENT] {json.dumps(message, indent=2, ensure_ascii=False)}")
                 
                 if message["type"] == ChatProtocol.MSG_CHAT:
                     # Chat mesajı
@@ -419,9 +426,6 @@ class HybridChatClient:
                         except:
                             pass
     
-
-
-            
             except socket.timeout:
                 continue
             except Exception as e:
