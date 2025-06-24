@@ -174,8 +174,8 @@ class NetworkTopology:
 
 ### 1. Depoyu Klonlayın
 ```bash
-git clone <repository-url>
-cd hibrit-chat
+git clone https://github.com/rumeysa111/reail-time-chat-room-.git
+
 ```
 
 ### 2. Gerekli Paketleri Yükleyin
@@ -308,14 +308,7 @@ def _generate_checksum(message):
 ```
 **Çözüm:** Ağ bağlantınızı kontrol edin, timeout süresini artırın
 
-## 📈 Gelecek Geliştirmeler
 
-- [ ] **Dosya Transferi**: Büyük dosya gönderme desteği
-- [ ] **Grup Sohbetleri**: Çoklu kullanıcı odaları
-- [ ] **Şifreleme**: End-to-end şifreleme desteği
-- [ ] **Veritabanı Entegrasyonu**: Mesaj geçmişi saklama
-- [ ] **Mobile Destek**: React Native/Flutter uygulaması
-- [ ] **Docker Desteği**: Konteyner tabanlı deployment
 
 ## 👥 Katkıda Bulunma
 
@@ -325,16 +318,3 @@ def _generate_checksum(message):
 4. Branch'inizi push edin (`git push origin feature/yeni-ozellik`)
 5. Pull Request oluşturun
 
-## 📄 Lisans
-
-Bu proje MIT lisansı altında lisanslanmıştır. Detaylar için `LICENSE` dosyasına bakın.
-
-## 📞 İletişim
-
-- **Geliştirici**: [Your Name]
-- **E-mail**: [your.email@example.com]
-- **GitHub**: [your-github-username]
-
----
-
-**Not:** Bu proje eğitim amaçlı geliştirilmiştir ve ağ programlama prensiplerini göstermek için tasarlanmıştır. Üretim ortamında kullanmadan önce güvenlik testlerinden geçirilmesi önerilir.
