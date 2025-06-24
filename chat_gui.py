@@ -6,6 +6,7 @@ from hybrid_chat_client_fixed import HybridChatClient
 import time
 from datetime import datetime
 from topology_view_fixed import TopologyView
+from performance_metrices import PerformanceViewer
 
 class ModernChatGUI:
     def __init__(self):
@@ -33,6 +34,16 @@ class ModernChatGUI:
         # İstemci oluştur
         self.client = HybridChatClient()
         
+        # Oturum durumu
+        self.is_logged_in = False
+        self.protocol_logs = []  # Protokol mesajlarını burada saklarız
+        
+        # Özel sohbet pencereleri için sözlük
+        self.private_chats = {}  # {username: PrivateChatWindow}
+        
+        # GUI elemanları
+        self.create_widgets()
+        
         # Callback'leri ayarla
         self.client.on_message = self.on_message
         self.client.on_user_join = self.on_user_join
@@ -40,21 +51,9 @@ class ModernChatGUI:
         self.client.on_user_list = self.on_user_list
         self.client.on_direct_message = self.on_direct_message
         
-        # Oturum durumu
-        self.is_logged_in = False
-
-        self.protocol_logs = []  # Protokol mesajlarını burada saklarız
-
-        
-        # GUI elemanları
-        self.create_widgets()
-        
         # Kullanıcı adı al ve bağlan
         self.login()
         
-        # Özel sohbet pencereleri için sözlük
-        self.private_chats = {}  # {username: PrivateChatWindow}
-
         self.root.mainloop()
     
     def create_widgets(self):
@@ -187,6 +186,7 @@ class ModernChatGUI:
             cursor="hand2"
         )
         self.topo_btn.pack(fill=tk.X, padx=10, pady=(0, 5))
+        
         # Protocol Göster butonu
         self.protocol_btn = tk.Button(
             self.sidebar_frame,
@@ -202,11 +202,25 @@ class ModernChatGUI:
         )
         self.protocol_btn.pack(fill=tk.X, padx=10, pady=(0, 5))
 
+        # Performance düğmesi ekle
+        self.perf_btn = tk.Button(
+            self.sidebar_frame,
+            text="Performans Metriklerini Göster",
+            font=("Segoe UI", 10),
+            bg=self.colors["primary"],
+            fg="white",
+            relief=tk.FLAT,
+            padx=5,
+            pady=5,
+            command=self.show_performance_metrics,
+            cursor="hand2"
+        )
+        self.perf_btn.pack(fill=tk.X, padx=10, pady=(0, 5))
+
         # Sağ tık menüsü için
         self.user_menu = tk.Menu(self.root, tearoff=0)
         self.user_menu.add_command(label="Özel Mesaj Gönder", command=self.send_direct_message_selected)
 
-    
     def on_frame_configure(self, event=None):
         """Mesaj alanı boyutu değiştiğinde scrollbar'ı güncelle"""
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
@@ -217,6 +231,90 @@ class ModernChatGUI:
         if event:
             canvas_width = event.width
             self.canvas.itemconfig(self.messages_container_id, width=canvas_width)
+    
+    def show_performance_metrics(self):
+        """Performans metriklerini gösterir"""
+        try:
+            # Eğer zaten açık bir pencere varsa, o pencereyi öne getir
+            if hasattr(self, 'perf_window') and self.perf_window and self.perf_window.winfo_exists():
+                self.perf_window.lift()
+                self.perf_window.focus_force()
+                return
+            
+            # Yeni pencere oluştur
+            self.perf_window = tk.Toplevel(self.root)
+            self.perf_window.title("Performans Metrikleri")
+            self.perf_window.geometry("900x700")
+            self.perf_window.transient(self.root)
+            
+            # Pencere kapatma işleyicisi
+            self.perf_window.protocol("WM_DELETE_WINDOW", lambda: self.close_performance_window())
+            
+            # Performans görüntüleyici oluştur
+            try:
+                self.perf_viewer = PerformanceViewer(self.perf_window, self.client.metrics)
+                print("[DEBUG] Performans penceresi başarıyla oluşturuldu")
+            except Exception as e:
+                print(f"[ERROR] PerformanceViewer oluşturulurken hata: {e}")
+                self.perf_window.destroy()
+                return
+            
+
+            
+            # Düzenli ping için zamanlayıcı başlat
+            self.start_performance_ping_timer()
+            
+        except Exception as e:
+            print(f"[ERROR] Performans metrikleri gösterilirken hata: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def close_performance_window(self):
+        """Performans penceresini güvenli bir şekilde kapatır"""
+        try:
+            # Zamanlayıcıyı durdur
+            if hasattr(self, 'perf_ping_timer_id'):
+                self.root.after_cancel(self.perf_ping_timer_id)
+                delattr(self, 'perf_ping_timer_id')
+            
+            # Viewer'ı durdur
+            if hasattr(self, 'perf_viewer'):
+                self.perf_viewer.stop_auto_refresh()
+                delattr(self, 'perf_viewer')
+            
+            # Pencereyi kapat
+            if hasattr(self, 'perf_window') and self.perf_window:
+                self.perf_window.destroy()
+                self.perf_window = None
+                
+            print("[DEBUG] Performans penceresi başarıyla kapatıldı")
+        except Exception as e:
+            print(f"[ERROR] Performans penceresi kapatılırken hata: {e}")
+
+    def start_performance_ping_timer(self):
+        """Performans metrikleri için düzenli ping gönderir"""
+        def ping_and_schedule():
+            try:
+                # Pencere hala açık mı kontrol et
+                if not hasattr(self, 'perf_window') or not self.perf_window or not self.perf_window.winfo_exists():
+                    return
+                
+                # Bağlantı durumu kontrol et
+                if self.is_logged_in and self.client.connected:
+                    # Ping gönder
+                    self.client.ping_all_users()
+                    print("[DEBUG] Performans için ping gönderildi")
+                
+                # 5 saniye sonra tekrar çalıştır
+                self.perf_ping_timer_id = self.root.after(5000, ping_and_schedule)
+                
+            except Exception as e:
+                print(f"[ERROR] Performans ping hatası: {e}")
+        
+        # İlk ping'i hemen gönder
+        ping_and_schedule()
+
+   
     
     def login(self):
         """Kullanıcı girişi diyalog kutusu"""
@@ -454,7 +552,7 @@ class ModernChatGUI:
                 padx=5,
                 pady=1,
                 cursor="hand2",
-                command=lambda u=user: self.get_or_create_private_chat(u)  # Bu satırı değiştirdik
+                command=lambda u=user: self.get_or_create_private_chat(u)
             )
             dm_btn.pack(side=tk.RIGHT, padx=(0, 5))
 
@@ -474,8 +572,7 @@ class ModernChatGUI:
             formatted_time = timestamp
             
         # Diğer kullanıcıdan gelen mesajı ekle
-        # Diğer kullanıcıdan gelen mesajı ekle
-        self.add_other_message(username, content, timestamp)
+        self.add_other_message(username, content, formatted_time)
         
         # Debug (JSON içeriği)
         debug_info = f"[DEBUG] {username} mesaj gönderdi: {content}"
@@ -526,14 +623,11 @@ class ModernChatGUI:
 
     def log_protocol(self, direction, message):
         """Gelen/giden protokol mesajlarını JSON formatında saklar"""
-        import json
         formatted = f"[{direction}] {json.dumps(message, indent=2, ensure_ascii=False)}"
         self.protocol_logs.append(formatted)
-
     
     def show_topology(self):
         """Ağ topolojisini görüntüler"""
-        import json  # json modülünü ekleyin
         if not self.is_logged_in:
             return
             
@@ -757,7 +851,6 @@ class ModernChatGUI:
         if recipient in self.private_chats:
             del self.private_chats[recipient]
 
-# chat_gui.py dosyasına ekleyin
 
 class PrivateChatWindow:
     def __init__(self, parent, username, recipient, client):
@@ -1014,11 +1107,13 @@ class PrivateChatWindow:
     
     def on_close(self):
         """Pencere kapatıldığında"""
-        # Ana uygulamaya bildir
-        if hasattr(self.parent, 'close_private_chat'):
-            self.parent.close_private_chat(self.recipient)
-        self.window.destroy()
-
+        try:
+            # Ana uygulamaya bildir
+            if hasattr(self.parent, 'close_private_chat'):
+                self.parent.close_private_chat(self.recipient)
+            self.window.destroy()
+        except Exception as e:
+            print(f"Pencere kapatılırken hata: {e}")
 
 
 if __name__ == "__main__":

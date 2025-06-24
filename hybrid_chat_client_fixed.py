@@ -6,6 +6,7 @@ import json
 import queue
 from hybrid_protocol import ChatProtocol
 from network_topology import NetworkTopology
+from performance_metrices import PerformanceMetrics
 
 class HybridChatClient:
     def __init__(self, server_ip="127.0.0.1", tcp_port=12345, udp_port=12346):
@@ -34,6 +35,9 @@ class HybridChatClient:
         # Topoloji için ekle
         self.topology = NetworkTopology()
         self.on_topology_data = None
+    
+        # Performans metrikleri
+        self.metrics = PerformanceMetrics()
     
     def connect(self, username):
         """Sunucuya bağlanır"""
@@ -108,6 +112,8 @@ class HybridChatClient:
         MAX_RETRIES = 3
         for attempt in range(MAX_RETRIES):
             self.udp_socket.sendto(message, (self.server_ip, self.udp_port))
+            # Metrik kaydı
+            self.metrics.record_message_sent(len(message))
             
             # ACK için bekle
             if ack_event.wait(1.0):  # 1 saniye timeout
@@ -291,6 +297,8 @@ class HybridChatClient:
                 elif message["type"] == ChatProtocol.MSG_USERS:
                     if self.on_user_list:
                         self.on_user_list(message["content"])
+                        # Kullanıcı sayısını kaydet
+                        self.metrics.record_user_count(len(message["content"]))
                 
                 elif message["type"] == ChatProtocol.MSG_TOPO:
                     # Topoloji verisi
@@ -337,6 +345,10 @@ class HybridChatClient:
                 data, addr = self.udp_socket.recvfrom(4096)
                 message = ChatProtocol.decode(data)
                 
+                # Metrik kaydı
+                if data and message:
+                    self.metrics.record_message_received(len(data))
+            
                 if message:
                     print(f"[UDP ALINDI - CLIENT] {json.dumps(message, indent=2, ensure_ascii=False)}")
                 
@@ -376,6 +388,9 @@ class HybridChatClient:
                         latency = max(0, (now - ping_time) * 1000)  # ms cinsinden, minimum 0
                         
                         print(f"[PONG] Alındı: {message['user']} latency={latency:.2f}ms")
+
+                        # Performans metriklerine gecikmeyi kaydet
+                        self.metrics.record_latency(message['user'], latency)
 
                         if message["user"] != self.username:
                             # Topolojiye bağlantı kalitesi güncelle
