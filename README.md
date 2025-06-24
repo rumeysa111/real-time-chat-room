@@ -1,6 +1,6 @@
-# Hibrit Chat Uygulaması
+# Real time  Chat Uygulaması
 
-Hibrit Chat, TCP ve UDP protokollerini birlikte kullanarak güvenilir ve performanslı bir sohbet deneyimi sunan modern bir network uygulamasıdır. Bu proje, ağ programlama prensiplerini göstermek ve gerçek zamanlı performans analizi yapmak amacıyla geliştirilmiştir.
+Real time chat app TCP ve UDP protokollerini birlikte kullanarak güvenilir ve performanslı bir sohbet deneyimi sunan modern bir network uygulamasıdır. Bu proje, ağ programlama prensiplerini göstermek ve gerçek zamanlı performans analizi yapmak amacıyla geliştirilmiştir.
 
 ## 🚀 Özellikler
 
