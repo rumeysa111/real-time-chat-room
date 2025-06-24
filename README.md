@@ -20,6 +20,18 @@ Real time chat app TCP ve UDP protokollerini birlikte kullanarak güvenilir ve p
 - **Responsive Layout**: Pencere boyutlarına uyumlu tasarım
 - **Çoklu Pencere Desteği**: Özel sohbet pencereleri
 
+## 📸 Ekran Görüntüleri
+
+<div align="center">
+  <img src="screenshots/main_chat.png" width="400" alt="Ana Sohbet" />
+  <img src="screenshots/private_chat.png" width="400" alt="Özel sohbet" />
+</div>
+
+<div align="center">
+  <img src="screenshots/performance_metrices.png" width="400" alt="Performans" />
+  <img src="screenshots/topology.png" width="400" alt="Ağ topolojisi" />
+</div>
+
 ## 📋 Sistem Gereksinimleri
 
 ### Gerekli Python Paketleri
